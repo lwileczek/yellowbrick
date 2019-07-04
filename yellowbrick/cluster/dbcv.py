@@ -22,9 +22,9 @@ import numpy as np
 import scipy.sparse as ss
 from scipy.spatial.distance import cdist
 from scipy.sparse.csgraph import minimum_spanning_tree
-# from .base import ClusteringScoreVisualizer
-# from ..style.palettes import LINE_COLOR
-# from ..exceptions import YellowbrickValueError, YellowbrickWarning
+from .base import ClusteringScoreVisualizer
+from ..style.palettes import LINE_COLOR
+from ..exceptions import YellowbrickValueError, YellowbrickWarning
 
 ## Packages for export
 __all__ = [
@@ -88,7 +88,11 @@ def core_distance(X, labels, dist_func="euclidean"):
 
 def mutual_reachability(X, core_dists, dist_func="euclidean"):
     """
-    The mutual reachability between two objects
+    The mutual reachability between two objects i.e. distance between two
+    points or records.  Take the distance between the two points and select the
+    maximum value between that distance and the core distance of both points.
+
+    Max(d(p0, p1), p0_coredist, p1_coredist)
 
     Parameters
     ----------
@@ -98,14 +102,16 @@ def mutual_reachability(X, core_dists, dist_func="euclidean"):
     core_distances:  (array) The core distances for each row/object 
 
     dist_func:  (string) what distance metric to use in cdist
+
+
+    OUTPUT:
+        reachability_graph - A sparse lower triangular matrix of the 
+        reachability distance between objects i and j
     """
 
-    # the following cdist call is the slowest part of this function
-    # it computes a symmetirc matrix, but perhaps if there is a better way
-    # to use it and compute the lower triangle it would save time
-    # Might not be worth it, hard to tell.
     dist_matrix = cdist(X, X, dist_func)
     n_row, _ = dist_matrix.shape
+    # n_row, n_col = X.shape
 
     # compute sparse matrix format
     length = n_row * (n_row-1) // 2
@@ -117,6 +123,8 @@ def mutual_reachability(X, core_dists, dist_func="euclidean"):
         dimensions[1, start:end] = list(range(n))  # cols
         dimensions[0, start:end] = n               # rows
         entries[0, start:end] = dist_matrix[n, :n]
+        #entries[0, start:end] = np.reshape(
+        #    cdist(X[:n, :],X[n, :].reshape(1, n_col)), (n,))  
         entries[1, start:end] = core_dists[n]
         entries[2, start:end] = core_dists[range(n)]
 
@@ -130,6 +138,27 @@ def mutual_reachability(X, core_dists, dist_func="euclidean"):
 def dbcv(X, labels, distance_function="euclidean"):
     """
     Density-Based Cluster Validation
+
+    Calculate the DBCV which is a calculation on in the interval [-1, 1] where
+    larger numbers are better.  This validaiton compares the maximum distance
+    between between points in a cluster against the minimum distance to another
+    clusters. 
+
+    Origional Paper:
+    http://www.dbs.ifi.lmu.de/~zimek/publications/SDM2014/DBCV.pdf
+
+    Parameters
+    ----------
+    X:  (array) Matrix of floats, The distances are calculated for each
+        point in a cluster, not against all other points. 
+
+    labels: (array) list of labels indicating to which cluster each record
+        belongs e.g. sklearn.cluster.DBSCAN.fit().labels_
+
+    dist_func: (string) string indicating the distance function to be used in
+
+    OUTPUT: 
+       dbcv - (float) Validation number in the interval [-1, 1] 
     """
     assert isinstance(X, np.ndarray), "X must be a numpy array, np.ndarray"
     assert len(X) == len(labels), ("Must have a label for each point, -1 for"
@@ -157,8 +186,8 @@ def dbcv(X, labels, distance_function="euclidean"):
             seperation.append(sep)
         density_seperation[i] = seperation
     density_sparseness = [np.max(tree) for tree in spanning_trees]  # DSC 
-    print("seperation:", density_seperation)
-    print("sparseness:", density_sparseness)
+    #print("seperation:", density_seperation)
+    #print("sparseness:", density_sparseness)
 
     # definition 7 validity index of a  cluster
     validity = [ (min(dspc) - dsc) / max(min(dspc), dsc) for dspc, dsc 
@@ -169,31 +198,4 @@ def dbcv(X, labels, distance_function="euclidean"):
         enumerate(validity)])
 
     return dbcv
-
-if __name__ == "__main__":
-    """
-    Testing to make sure functions work as intended
-
-    Further testing in d_test.py file. This is mostly to ensure small
-    functionallity and checking along the way. 
-    """
-    from sklearn.cluster import DBSCAN
-
-    X = np.array([[1, 2], [2, 2], [2, 3], [8, 7], [8, 8], [25, 80]])
-    clustering = DBSCAN(eps=3, min_samples=2).fit(X)
-    clusters = set(clustering.labels_)
-    if -1 in clusters:
-        clusters.remove(-1)  # -1 is noise not a cluster
-    print(clustering.labels_)
-    print(1 == clustering.labels_)
-    print(X)
-    print("shape:", X.shape)
-    print(X[1 == clustering.labels_])
-    print(clustering)
-    cd_output = core_distance(X, clustering.labels_)
-    print(cd_output)
-    graph = mutual_reachability(X, cd_output, 'euclidean')
-    print("graph:\n", graph)
-    output = dbcv(X, clustering.labels_)
-    print("dbcv:", output)
 
